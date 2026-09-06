@@ -1,0 +1,106 @@
+{
+  "business_name": "Acme Dental Studio",
+  "tagline": "Gentle, affordable dental care — same-week appointments",
+  "currency": "USD",
+  "contact": {
+    "phone": "+1-555-010-2030",
+    "email": "hello@acmedental.example",
+    "address": "123 Main St, Springfield",
+    "hours": "Mon–Sat 9:00–19:00"
+  },
+  "services": [
+    {
+      "id": "cleaning",
+      "name": "Professional Cleaning",
+      "price": 79,
+      "currency": "USD",
+      "duration_min": 45,
+      "description": "Exam, polish, plaque removal and fluoride treatment."
+    },
+    {
+      "id": "whitening",
+      "name": "Teeth Whitening",
+      "price": 199,
+      "currency": "USD",
+      "duration_min": 60,
+      "description": "In-office laser whitening, up to 6 shades brighter in one visit."
+    },
+    {
+      "id": "implant-consult",
+      "name": "Implant Consultation",
+      "price": 0,
+      "currency": "USD",
+      "duration_min": 30,
+      "description": "Free 3D scan and treatment plan with a senior dentist."
+    }
+  ],
+  "faqs": [
+    {
+      "id": "parking",
+      "question": "Where do I park?",
+      "answer": "Free parking behind the building; enter from Elm St."
+    },
+    {
+      "id": "pain",
+      "question": "Does whitening hurt?",
+      "answer": "Most patients feel only mild, temporary sensitivity. We use desensitizing gel on request."
+    },
+    {
+      "id": "booking",
+      "question": "How do I book?",
+      "answer": "Reply with a day/time, or call +1-555-010-2030. Same-week slots are usually available."
+    },
+    {
+      "id": "insurance",
+      "question": "Do you accept insurance?",
+      "answer": "Yes — Delta, Cigna and MetLife. We verify coverage before your visit."
+    }
+  ],
+  "policies": {
+    "cancellation": "Free cancellation up to 12h before the appointment.",
+    "refund": "Full refund if you cancel 12h+ ahead; 50% within 12h.",
+    "privacy": "We never share your contact details. Conversation data stays on our own server.",
+    "language": "We reply in the customer's language (English, Spanish, Russian)."
+  },
+  "objection_handlers": [
+    {
+      "id": "too-expensive",
+      "objection": "Too expensive",
+      "response": "I understand — many patients felt the same. Cleaning is $79 and covers exam + polish, and whitening ($199) is a one-time cost that lasts 1–2 years. We also offer a free implant consult. Would a payment plan help?"
+    },
+    {
+      "id": "need-think",
+      "objection": "I need to think about it",
+      "response": "Of course, no pressure. Can I hold a tentative slot for Thursday or Friday so you don't lose the same-week option? I can release it anytime."
+    },
+    {
+      "id": "afraid-pain",
+      "objection": "I'm afraid it will hurt",
+      "response": "Totally normal to feel that way. Our dentists use gentle techniques and numbing gel, and most cleanings are painless. Happy to start with the free consult so you can meet the doctor first?"
+    }
+  ],
+  "sales_scenarios": [
+    {
+      "id": "new-patient-cleaning",
+      "name": "New patient → cleaning booking",
+      "trigger": "User asks about cleaning, price, or first visit",
+      "steps": [
+        "Greet and answer the price ($79, 45 min).",
+        "Mention free parking + same-week availability.",
+        "Ask for preferred day/time (offer 2 options).",
+        "Confirm name + phone and summarize the booking."
+      ]
+    },
+    {
+      "id": "whitening-upsell",
+      "name": "Cleaning patient → whitening upsell",
+      "trigger": "User booked cleaning or asks about whitening/aesthetics",
+      "steps": [
+        "Congratulate on booking cleaning.",
+        "Offer whitening add-on at $199 with same-visit discount ($179).",
+        "Handle 'too expensive' / 'will think' with objection handlers.",
+        "Close: propose adding 60 min to the same visit."
+      ]
+    }
+  ]
+}

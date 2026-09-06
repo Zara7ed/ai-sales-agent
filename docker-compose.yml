@@ -1,0 +1,13 @@
+services:
+  sales-agent:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      KB_PATH: /app/data/business.json
+      SQLITE_PATH: /app/data/memory.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

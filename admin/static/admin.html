@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales Agent — Admin</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;background:#111;color:#eee}
+h1{font-size:1.4rem}
+section{background:#1b1b1b;border:1px solid #333;border-radius:8px;padding:1rem;margin-bottom:1rem}
+textarea,input{width:100%;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:.5rem}
+button{background:#4f8cff;color:#fff;border:0;border-radius:6px;padding:.5rem 1rem;cursor:pointer;margin:.25rem .25rem 0 0}
+button.danger{background:#c0392b}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+td,th{border-bottom:1px solid #333;padding:.4rem;text-align:left}
+.row{display:flex;gap:.5rem}.row>*{flex:1}
+#status{opacity:.8;font-size:.85rem}
+</style>
+</head>
+<body>
+<h1>AI Sales Agent — KB Admin</h1>
+<p id="status">Not loaded</p>
+<section>
+  <h2>Auth</h2>
+  <div class="row"><input id="token" type="password" placeholder="ADMIN_TOKEN (Bearer)"></div>
+</section>
+<section>
+  <h2>Business KB (raw JSON)</h2>
+  <textarea id="kb" rows="16" placeholder="KB JSON…"></textarea><br>
+  <button onclick="loadKB()">Load</button>
+  <button onclick="saveKB()">Save full KB</button>
+  <button onclick="reloadKB()">Hot-reload</button>
+</section>
+<section>
+  <h2>Sections</h2>
+  <div>
+    <button onclick="listSection('services')">Services</button>
+    <button onclick="listSection('faqs')">FAQs</button>
+    <button onclick="listSection('sales_scenarios')">Scenarios</button>
+    <button onclick="listSection('objection_handlers')">Objections</button>
+  </div>
+  <div id="items"></div>
+  <h3>Add / update item</h3>
+  <div class="row">
+    <input id="sec" placeholder="section: services|faqs|sales_scenarios|objection_handlers">
+    <input id="itemId" placeholder="id (empty = create)">
+  </div>
+  <textarea id="itemJson" rows="6" placeholder='{"id":"x","name":"…"}'></textarea><br>
+  <button onclick="saveItem()">Create / Update</button>
+</section>
+<script>
+const $ = id => document.getElementById(id);
+const headers = () => {
+  const t = $('token').value.trim();
+  return t ? {'Content-Type':'application/json','Authorization':'Bearer '+t}
+           : {'Content-Type':'application/json'};
+};
+const setStatus = m => $('status').textContent = m;
+async function loadKB(){
+  const r = await fetch('/api/admin/kb',{headers:headers()});
+  const j = await r.json();
+  $('kb').value = JSON.stringify(j,null,2);
+  setStatus('KB loaded ('+new Date().toLocaleTimeString()+')');
+}
+async function saveKB(){
+  const r = await fetch('/api/admin/kb',{method:'PUT',headers:headers(),body:JSON.stringify({kb:JSON.parse($('kb').value)})});
+  setStatus(r.ok?'KB saved':'Save failed: '+r.status);
+}
+async function reloadKB(){
+  const r = await fetch('/api/admin/reload',{method:'POST',headers:headers()});
+  setStatus(r.ok?'Hot-reload OK':'Reload failed: '+r.status);
+}
+async function listSection(sec){
+  $('sec').value = sec;
+  const r = await fetch('/api/admin/'+sec,{headers:headers()});
+  const items = await r.json();
+  $('items').innerHTML = '<table><tr><th>id</th><th>preview</th><th></th></tr>'+
+    items.map(it=>`<tr><td>${it.id||''}</td><td>${(it.name||it.question||it.objection||'').slice(0,60)}</td>
+    <td><button onclick="editRow('${sec}','${it.id}')">Edit</button>
+    <button class="danger" onclick="delRow('${sec}','${it.id}')">Del</button></td></tr>`).join('')+'</table>';
+  window._lastItems = {[sec]: items};
+}
+async function editRow(sec,id){
+  const it = (window._lastItems[sec]||[]).find(x=>String(x.id)===String(id));
+  $('itemId').value = id; $('itemJson').value = JSON.stringify(it||{},null,2);
+}
+async function saveItem(){
+  const sec=$('sec').value.trim(), id=$('itemId').value.trim();
+  const item=JSON.parse($('itemJson').value);
+  const url = id?`/api/admin/${sec}/${encodeURIComponent(id)}`:`/api/admin/${sec}`;
+  const r = await fetch(url,{method:id?'PUT':'POST',headers:headers(),body:JSON.stringify({item})});
+  setStatus(r.ok?'Item saved':'Save failed: '+r.status);
+  if(r.ok) listSection(sec);
+}
+async function delRow(sec,id){
+  if(!confirm('Delete '+id+'?')) return;
+  const r = await fetch(`/api/admin/${sec}/${encodeURIComponent(id)}`,{method:'DELETE',headers:headers()});
+  setStatus(r.ok?'Deleted':'Delete failed: '+r.status);
+  if(r.ok) listSection(sec);
+}
+loadKB();
+</script>
+</body>
+</html>
