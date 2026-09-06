@@ -14,6 +14,11 @@ try:
 except Exception:  # admin optional
     admin_router = None
 
+try:
+    from admin.ops import router as ops_router
+except Exception:  # ops/CRM optional
+    ops_router = None
+
 from channels.telegram import TelegramAdapter
 from config import load as load_settings
 from engine import build_engine
@@ -31,6 +36,9 @@ def main() -> None:
     if admin_router is not None:
         app.include_router(admin_router)
         log.info("Admin panel mounted at /api/admin")
+    if ops_router is not None:
+        app.include_router(ops_router)
+        log.info("Ops/CRM API mounted at /api/ops")
 
     async def _serve() -> None:
         config = uvicorn.Config(

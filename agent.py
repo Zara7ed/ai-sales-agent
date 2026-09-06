@@ -189,28 +189,27 @@ class SalesAgent:
     ) -> str:
         """Offline reply used when no router/LLM is configured or fails."""
         if stage == "after-sales":
-            return "Sorry for the trouble — tell me what happened and I'll sort it out. What's your order number?"
+            return "ببخشید که به مشکل خوردی، بگو چی شده تا حلش کنم. شماره سفارشت چنده؟"
         if objections:
             if kb_chunks:
                 first = kb_chunks[0] if kb_chunks else ""
                 bits = " ".join(first.split()[:30])
                 return (
-                    f"Fair point on {objections[0]}. Here's the short version: {bits} "
-                    "Want me to tailor it to your case?"
-                ).strip()
+                    f"حرفت درسته. خلاصه‌ش اینه: {bits} "
+                    "بگو دقیقا چی برات مهمه تا همون رو برات جور کنم؟"
+                )
             return (
-                f"Fair point on {objections[0]} — tell me a bit more about "
-                "your budget and goals, and I'll find the best fit. What matters most?"
+                "حرفت رو می‌فهمم، بگو بودجه و هدفت چیه تا بهترین گزینه رو پیدا کنم. چی برات مهم‌تره؟"
             )
         if stage == "ready":
-            return "Great — I can set that up now. Which option do you want, and how would you like to pay?"
+            return "عالیه، الان برات اوکیش می‌کنم. کدوم گزینه رو می‌خوای و چطور می‌خوای پرداخت کنی؟"
         if stage == "comparing":
-            first = kb_chunks[0] if kb_chunks else "happy to break down the differences"
-            return f"Good question — {first}. Which matters more to you: price or features?"
+            first = kb_chunks[0] if kb_chunks else "بگو مقایسه‌شون کنم"
+            return f"سوال خوبیه، {first}. برات قیمت مهم‌تره یا امکانات؟"
         if kb_chunks:
             first = " ".join(kb_chunks[0].split()[:40])
-            return f"{first} Want me to go deeper on anything?"
-        return "Hi! What are you looking for today?"
+            return f"{first} بگو بیشتر توضیح بدم؟"
+        return "سلام! دنبال چی هستی؟ بگو تا راهنماییت کنم."
 
     def handle(
         self,
@@ -220,6 +219,28 @@ class SalesAgent:
         history_limit: int = 20,
     ) -> AgentReply:
         """Process one user message; returns reply + stage + analytics event."""
+        from humanize import humanize
+        from persona import (
+            detect_disengage,
+            disengage_reply,
+            build_system_prompt as fa_system_prompt,
+        )
+        from tokens import compress_history
+
+        # Locked conversations stay closed (polite, no re-engagement).
+        notes = ""
+        try:
+            notes = self.store.get_notes(user_id) or ""
+        except Exception:
+            notes = ""
+        if "[LOCKED]" in notes:
+            text = "باشه عزیز، هر وقت خواستی در خدمتم."
+            return AgentReply(
+                reply=text, stage="closed",
+                event={"type": "locked_reply", "user_id": user_id,
+                       "channel": channel, "ts": self._now()},
+            )
+
         profile = self.store.get_profile(user_id)
         prev_stage = self.store.get_stage(user_id)
         stage = self.classify_stage(message, prev_stage)
@@ -227,10 +248,20 @@ class SalesAgent:
         playbook_lines = self.playbook(objections)
         kb_chunks = self.kb.search(message, top_k=3)
 
-        system = self.build_system_prompt(
-            profile, stage, kb_chunks, objections, playbook_lines
-        )
+        kb_data = getattr(self.kb, "data", None)
+        company = getattr(self, "company_name", "Acme") or "Acme"
+        try:
+            system = fa_system_prompt(
+                profile, stage, kb_chunks, objections, playbook_lines,
+                kb_data=kb_data if isinstance(kb_data, dict) else None,
+                company_name=company, max_words=self.max_words,
+            )
+        except Exception:
+            system = self.build_system_prompt(
+                profile, stage, kb_chunks, objections, playbook_lines
+            )
         history = self.store.get_history(user_id, channel, history_limit)
+        history = compress_history(history, budget=history_limit)
         llm_messages = [{"role": "system", "content": system}] + history + [
             {"role": "user", "content": message}
         ]
@@ -249,11 +280,46 @@ class SalesAgent:
         else:
             text = self._fallback_reply(stage, objections, kb_chunks)
 
-        text = self._enforce_length(text, self.max_words)
+        # Local (heuristic) disengage check + LLM-emitted [DISENGAGE:*] tag.
+        local_hit = None
+        try:
+            local_hit = detect_disengage(message)
+        except Exception:
+            local_hit = None
+        tag_reason = None
+        m = re.search(r"\[DISENGAGE:\s*([a-z_]+)\]", text)
+        if m:
+            tag_reason = m.group(1)
+            text = re.sub(r"\s*\[DISENGAGE:[^\]]+\]\s*", " ", text).strip()
+        dis_reason = tag_reason or local_hit
+        if dis_reason and "[LOCKED]" not in notes:
+            text = disengage_reply(dis_reason)
+            try:
+                self.store.append_note(user_id, f"[LOCKED:{dis_reason}] [LOCKED]")
+                self.store.set_stage(user_id, "closed")
+            except Exception:
+                pass
+            stage = "closed"
+
+        try:
+            text = humanize(text, max_words=self.max_words)
+        except Exception:
+            text = self._enforce_length(text, self.max_words)
 
         self.store.save_message(user_id, "user", message, channel)
         self.store.save_message(user_id, "assistant", text, channel)
         self.store.set_stage(user_id, stage)
+
+        # Best-effort CRM touch (never breaks the reply path).
+        try:
+            from crm import MiniCRM
+
+            crm = MiniCRM()
+            crm.upsert_contact(user_id, channel, {"last_stage": stage})
+            if stage in ("ready", "closed"):
+                crm.move_deal(user_id, "won" if stage == "ready" else "lost")
+        except Exception:
+            pass
 
         event = {
             "type": "agent_reply",
@@ -266,6 +332,7 @@ class SalesAgent:
             "provider": provider,
             "model": model,
             "reply_words": len(text.split()),
+            "disengaged": stage == "closed",
             "ts": self._now(),
         }
         return AgentReply(reply=text, stage=stage, event=event)

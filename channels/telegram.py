@@ -51,7 +51,12 @@ class TelegramAdapter(ChannelAdapter):
             text = msg.get("text", "")
             chat = msg.get("chat", {}) or {}
             chat_id = chat.get("id")
-            if chat_id is None or not text:
+            if chat_id is None:
+                return None
+            # Voice notes: keep file_id in raw for transcription downstream.
+            if not text and isinstance(msg.get("voice"), dict):
+                text = ""
+            if not text and not isinstance(msg.get("voice"), dict):
                 return None
             return IncomingMessage(
                 user_id=f"telegram:{chat_id}",
@@ -72,7 +77,25 @@ class TelegramAdapter(ChannelAdapter):
         resp.raise_for_status()
         return resp.json()
 
+    async def _download_voice(self, file_id: str) -> Optional[bytes]:
+        """Download a voice note file via getFile; None on any failure."""
+        try:
+            client = self._client_or_new()
+            r = await client.get(f"{self._base}/getFile", params={"file_id": file_id})
+            r.raise_for_status()
+            path = (r.json().get("result") or {}).get("file_path", "")
+            if not path:
+                return None
+            d = await client.get(f"https://api.telegram.org/file/bot{self.token}/{path}")
+            d.raise_for_status()
+            return d.content
+        except Exception:
+            log.exception("Voice download failed")
+            return None
+
     async def _poll_once(self) -> None:
+        from humanize import typing_delay
+
         client = self._client_or_new()
         resp = await client.get(
             f"{self._base}/getUpdates",
@@ -85,20 +108,81 @@ class TelegramAdapter(ChannelAdapter):
             incoming = self.normalize(update)
             if incoming is None:
                 continue
+            customer_text = incoming.text
+            # Voice note -> transcribe; on quota/token-out ask to type.
+            msg = (incoming.raw.get("message") or {}) if isinstance(incoming.raw, dict) else {}
+            if not customer_text and isinstance(msg.get("voice"), dict):
+                audio = await self._download_voice(str(msg["voice"].get("file_id", "")))
+                customer_text = ""
+                if audio:
+                    try:
+                        from voice import transcribe
+
+                        customer_text = transcribe(audio, None) or ""
+                    except Exception:
+                        customer_text = ""
+                if not customer_text:
+                    await self.send(OutgoingMessage(
+                        user_id=incoming.user_id, channel="telegram",
+                        text="ببخشید، الان نمی‌تونم ویس گوش بدم، میشه تایپ کنی؟",
+                    ))
+                    continue
+            # Owner takeover: stay silent, forward to owner only.
+            owner_mode, owner_id = self._owner()
+            if owner_mode is not None and owner_mode.is_takeover(incoming.user_id):
+                if owner_id:
+                    try:
+                        await self.send(OutgoingMessage(
+                            user_id=f"telegram:{owner_id}", channel="telegram",
+                            text=owner_mode.forward_payload(
+                                incoming.user_id, "telegram", customer_text),
+                        ))
+                    except Exception:
+                        log.exception("Owner forward failed")
+                continue
             try:
-                reply, _stage = await handle_message(
+                reply, stage = await handle_message(
                     self.agent,
                     incoming.user_id,
                     "telegram",
-                    incoming.text,
+                    customer_text,
                 )
             except Exception:
                 log.exception("SalesAgent.handle failed for telegram update")
-                reply = "Sorry, something went wrong. Please try again."
+                reply, stage = "ببخشید، یه مشکل پیش اومد. دوباره بگو.", "new"
+            try:
+                await asyncio.sleep(typing_delay(reply))
+            except Exception:
+                pass
             try:
                 await self.send(OutgoingMessage(user_id=incoming.user_id, channel="telegram", text=reply))
             except Exception:
                 log.exception("Telegram sendMessage failed")
+            # Live-feed to owner.
+            if owner_mode is not None and owner_id and owner_mode.is_live(incoming.user_id):
+                try:
+                    await self.send(OutgoingMessage(
+                        user_id=f"telegram:{owner_id}", channel="telegram",
+                        text=owner_mode.forward_payload(
+                            incoming.user_id, "telegram", customer_text, reply, stage),
+                    ))
+                except Exception:
+                    log.exception("Owner live-feed failed")
+
+    def _owner(self):
+        """Return (OwnerMode|None, owner_chat_id|None)."""
+        owner_id = os.getenv("OWNER_TELEGRAM_ID", "")
+        if not owner_id:
+            return None, None
+        try:
+            from owner import OwnerMode
+
+            store = getattr(self.agent, "store", None)
+            if store is None:
+                return None, owner_id
+            return OwnerMode(store), owner_id
+        except Exception:
+            return None, owner_id
 
     async def run(self) -> None:
         if not self.token:

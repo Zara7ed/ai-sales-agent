@@ -116,3 +116,23 @@ data/seed_business.json  example business KB
 web/app.py  FastAPI app: /api/chat, /webhooks/*, /admin (parallel track)
 tests/test_smoke.py  import + KB assertions
 ```
+
+## Owner control, ops API & deploy (new)
+
+- **owner.py** — `OwnerMode` over `ConversationStore`: `enable_live(user_id)`
+  forwards that user's exchanges to you as Persian live-feed text
+  (`forward_payload`); `takeover(user_id, bool)` silences the bot so you can
+  reply manually; `is_takeover()` gates auto-replies in channel adapters.
+- **adminbot.py** — owner Telegram bot as pure functions:
+  `handle_owner_command(text, owner_id)` handles `/stats`, `/takeover`,
+  `/release`, `/watch`, `/reminders`, `/kb get <section>` (Persian replies,
+  gated by `OWNER_TELEGRAM_ID`); `answer_admin_question()` chats with the
+  agent in `owner-advisory` mode.
+- **admin/ops.py** — ops router (`/api/ops`): `GET /contacts`,
+  `GET /contacts/{id}`, `GET /reminders/due`, `POST /deals/move`,
+  `GET /lessons`. Uses `crm.py`/`learning.py` when present, else falls back
+  to the bot SQLite DB. Mount with `app.include_router(ops_router)`.
+- **Deploy** — `railway.toml` (reuses the existing `Dockerfile`) +
+  `Procfile` (`uvicorn main:app`, `$PORT`).
+- **Env** — see `.env.example`: `OWNER_TELEGRAM_ID`, `STT_*`, `PAYMENT_*`
+  (payment specifics live in the KB per business, env only holds defaults).
