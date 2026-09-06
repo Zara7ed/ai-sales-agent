@@ -1,4 +1,11 @@
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template?template=https://github.com/Zara7ed/ai-sales-agent)
+
 # AI Sales Agent
+
+> One-click deploy: click the button above, add env vars (`TELEGRAM_BOT_TOKEN`, `PRIMARY_API_KEY`, `OWNER_TELEGRAM_ID`), done.
+> Or on any VPS: `docker compose up -d --build`.
+
+
 
 Multichannel AI salesperson (Telegram + Instagram + Web widget) backed by a
 tiered LLM router, local SQLite memory, and an editable business knowledge base.
